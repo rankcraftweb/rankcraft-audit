@@ -1,0 +1,145 @@
+'use client';
+
+import { useState } from 'react';
+import ScoreCircle from './components/ScoreCircle';
+
+interface PageSpeedResult {
+  performance: number;
+  accessibility: number;
+  bestPractices: number;
+  seo: number;
+}
+
+interface AuditResponse {
+  url: string;
+  mobile: PageSpeedResult;
+  desktop: PageSpeedResult;
+  fetchedAt: string;
+}
+
+export default function Home() {
+  const [url, setUrl] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<AuditResponse | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const res = await fetch('/api/audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || 'Something went wrong. Please try again.');
+        return;
+      }
+
+      setResult(data);
+    } catch {
+      setError('Could not reach the audit service. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0C2A4A]">
+      <header className="border-b border-white/10">
+        <div className="mx-auto max-w-5xl px-6 py-6">
+          <span className="text-xl font-bold text-white">
+            RankCraft<span className="text-[#1D9E75]"> Audit</span>
+          </span>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-3xl px-6 py-16">
+        <div className="text-center">
+          <p className="text-sm font-medium uppercase tracking-widest text-[#1D9E75]">
+            Free Website Audit
+          </p>
+          <h1 className="mt-3 text-4xl font-bold text-white">
+            See exactly where your site stands.
+          </h1>
+          <p className="mt-4 text-lg text-[#63C89F]">
+            Enter your website URL for a free performance, SEO, and accessibility report.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="mt-10 flex gap-3">
+          <input
+            type="url"
+            required
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://yourwebsite.com"
+            className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded-lg bg-[#1D9E75] px-6 py-3 font-medium text-white transition hover:bg-[#178A65] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading ? 'Analyzing…' : 'Run audit'}
+          </button>
+        </form>
+
+        {error && (
+          <div className="mt-6 rounded-lg bg-[#FCEBEB] px-4 py-3 text-sm text-[#A32D2D]">
+            {error}
+          </div>
+        )}
+
+        {loading && (
+          <div className="mt-10 text-center text-[#63C89F]">
+            Running Google PageSpeed Insights for mobile and desktop, this can take up to 30 seconds…
+          </div>
+        )}
+
+        {result && (
+          <div className="mt-12 space-y-8">
+            <div className="rounded-2xl bg-[#F4F6F9] p-8">
+              <h2 className="text-lg font-semibold text-[#0C2A4A]">Mobile</h2>
+              <div className="mt-6 flex justify-around">
+                <ScoreCircle label="Performance" score={result.mobile.performance} />
+                <ScoreCircle label="Accessibility" score={result.mobile.accessibility} />
+                <ScoreCircle label="Best Practices" score={result.mobile.bestPractices} />
+                <ScoreCircle label="SEO" score={result.mobile.seo} />
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-[#F4F6F9] p-8">
+              <h2 className="text-lg font-semibold text-[#0C2A4A]">Desktop</h2>
+              <div className="mt-6 flex justify-around">
+                <ScoreCircle label="Performance" score={result.desktop.performance} />
+                <ScoreCircle label="Accessibility" score={result.desktop.accessibility} />
+                <ScoreCircle label="Best Practices" score={result.desktop.bestPractices} />
+                <ScoreCircle label="SEO" score={result.desktop.seo} />
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-[#0F3A5F] p-8 text-center">
+              <h3 className="text-xl font-semibold text-white">
+                Want help fixing what&apos;s holding your site back?
+              </h3>
+              <a
+                href="https://rankcraftweb.com/contact"
+                className="mt-4 inline-block rounded-lg bg-[#1D9E75] px-6 py-3 font-medium text-white transition hover:bg-[#178A65]"
+              >
+                Talk to RankCraft
+              </a>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
