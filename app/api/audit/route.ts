@@ -9,6 +9,10 @@ import { NextRequest, NextResponse } from 'next/server';
  * frontend can render directly.
  */
 
+// PageSpeed Insights can take up to ~30s per strategy; Vercel's default
+// 10s function timeout would cut that off, so extend it explicitly.
+export const maxDuration = 60;
+
 interface PageSpeedResult {
   performance: number;
   accessibility: number;
