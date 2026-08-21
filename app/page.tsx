@@ -19,6 +19,8 @@ interface AuditResponse {
 
 export default function Home() {
   const [url, setUrl] = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AuditResponse | null>(null);
@@ -33,7 +35,7 @@ export default function Home() {
       const res = await fetch('/api/audit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, name, email }),
       });
 
       const data = await res.json();
@@ -74,22 +76,42 @@ export default function Home() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-10 flex gap-3">
-          <input
-            type="url"
-            required
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://yourwebsite.com"
-            className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="rounded-lg bg-[#1D9E75] px-6 py-3 font-medium text-white transition hover:bg-[#178A65] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? 'Analyzing…' : 'Run audit'}
-          </button>
+        <form onSubmit={handleSubmit} className="mt-10 space-y-3">
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <input
+              type="text"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name"
+              className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
+            />
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@company.com"
+              className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
+            />
+          </div>
+          <div className="flex gap-3">
+            <input
+              type="url"
+              required
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://yourwebsite.com"
+              className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="rounded-lg bg-[#1D9E75] px-6 py-3 font-medium text-white transition hover:bg-[#178A65] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? 'Analyzing…' : 'Run audit'}
+            </button>
+          </div>
         </form>
 
         {error && (

@@ -27,6 +27,38 @@ interface AuditResponse {
   fetchedAt: string;
 }
 
+const LEADS_ENDPOINT = 'https://rankcraftweb.com/wp-json/rankcraft/v1/leads';
+const LEADS_TIMEOUT_MS = 5000;
+
+/**
+ * Forwards a captured lead to the WordPress site, server-to-server (no
+ * CORS concerns). Best-effort: any failure is caught and logged, never
+ * allowed to affect the audit response the frontend is waiting on.
+ */
+async function postLeadToWordPress(
+  name: string,
+  email: string,
+  url: string,
+  mobile: PageSpeedResult,
+  desktop: PageSpeedResult
+): Promise<void> {
+  try {
+    const res = await fetch(LEADS_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, url, mobile, desktop }),
+      signal: AbortSignal.timeout(LEADS_TIMEOUT_MS),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      console.error(`Lead capture failed (${res.status}): ${body}`);
+    }
+  } catch (err) {
+    console.error('Lead capture request failed:', err);
+  }
+}
+
 function isValidUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
@@ -81,7 +113,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: { url?: string };
+  let body: { url?: string; name?: string; email?: string };
   try {
     body = await request.json();
   } catch {
@@ -89,6 +121,8 @@ export async function POST(request: NextRequest) {
   }
 
   const targetUrl = body.url?.trim();
+  const name = body.name?.trim();
+  const email = body.email?.trim();
 
   if (!targetUrl || !isValidUrl(targetUrl)) {
     return NextResponse.json(
@@ -109,6 +143,10 @@ export async function POST(request: NextRequest) {
       desktop,
       fetchedAt: new Date().toISOString(),
     };
+
+    if (name && email) {
+      await postLeadToWordPress(name, email, targetUrl, mobile, desktop);
+    }
 
     return NextResponse.json(response);
   } catch (err) {
