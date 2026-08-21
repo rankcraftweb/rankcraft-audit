@@ -108,7 +108,7 @@ export default function Home() {
           <div className="mt-12 space-y-8">
             <div className="rounded-2xl bg-[#F4F6F9] p-8">
               <h2 className="text-lg font-semibold text-[#0C2A4A]">Mobile</h2>
-              <div className="mt-6 flex justify-around">
+              <div className="mt-6 grid grid-cols-2 gap-6 sm:flex sm:justify-around">
                 <ScoreCircle label="Performance" score={result.mobile.performance} />
                 <ScoreCircle label="Accessibility" score={result.mobile.accessibility} />
                 <ScoreCircle label="Best Practices" score={result.mobile.bestPractices} />
@@ -118,7 +118,7 @@ export default function Home() {
 
             <div className="rounded-2xl bg-[#F4F6F9] p-8">
               <h2 className="text-lg font-semibold text-[#0C2A4A]">Desktop</h2>
-              <div className="mt-6 flex justify-around">
+              <div className="mt-6 grid grid-cols-2 gap-6 sm:flex sm:justify-around">
                 <ScoreCircle label="Performance" score={result.desktop.performance} />
                 <ScoreCircle label="Accessibility" score={result.desktop.accessibility} />
                 <ScoreCircle label="Best Practices" score={result.desktop.bestPractices} />
