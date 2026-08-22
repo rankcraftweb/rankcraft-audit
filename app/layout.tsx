@@ -4,6 +4,10 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "RankCraft Audit — Free Website Audit",
   description: "Get a free performance, SEO, and accessibility audit for your website.",
+  icons: {
+    icon: "/favicon-32.png",
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

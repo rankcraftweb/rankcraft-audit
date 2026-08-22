@@ -57,14 +57,18 @@ export default function Home() {
     <div className="min-h-screen bg-[#0C2A4A]">
       <header className="border-b border-white/10">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-6 py-6">
-          <span className="text-xl font-bold text-white">
-            RankCraft<span className="text-[#1D9E75]"> Audit</span>
-          </span>
+          <img
+            src="/rankcraft-audit-dark.png"
+            alt="RankCraft Audit"
+            width={203}
+            height={36}
+            className="h-9 w-auto"
+          />
           <a
             href="https://rankcraftweb.com"
             className="text-sm font-medium text-white/70 transition hover:text-white"
           >
-            ← Back to RankCraft Web
+            ← Back
           </a>
         </div>
       </header>
