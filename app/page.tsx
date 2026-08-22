@@ -56,10 +56,16 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#0C2A4A]">
       <header className="border-b border-white/10">
-        <div className="mx-auto max-w-5xl px-6 py-6">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-6 py-6">
           <span className="text-xl font-bold text-white">
             RankCraft<span className="text-[#1D9E75]"> Audit</span>
           </span>
+          <a
+            href="https://rankcraftweb.com"
+            className="text-sm font-medium text-white/70 transition hover:text-white"
+          >
+            ← Back to RankCraft Web
+          </a>
         </div>
       </header>
 
@@ -95,7 +101,7 @@ export default function Home() {
               className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
             />
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row">
             <input
               type="url"
               required
