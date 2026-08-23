@@ -43,9 +43,18 @@ async function postLeadToWordPress(
   desktop: PageSpeedResult
 ): Promise<void> {
   try {
+    const secret = process.env.RANKCRAFT_LEADS_SECRET;
+    if (!secret) {
+      console.error('Lead capture skipped: missing RANKCRAFT_LEADS_SECRET.');
+      return;
+    }
+
     const res = await fetch(LEADS_ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-RankCraft-Secret': secret,
+      },
       body: JSON.stringify({ name, email, url, mobile, desktop }),
       signal: AbortSignal.timeout(LEADS_TIMEOUT_MS),
     });

@@ -17,6 +17,12 @@ interface AuditResponse {
   fetchedAt: string;
 }
 
+declare global {
+  interface Window {
+    gtag?: (...args: unknown[]) => void;
+  }
+}
+
 export default function Home() {
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
@@ -46,6 +52,12 @@ export default function Home() {
       }
 
       setResult(data);
+
+      if (name && email && typeof window.gtag === 'function') {
+        window.gtag('event', 'generate_lead', {
+          audited_url: url,
+        });
+      }
     } catch {
       setError('Could not reach the audit service. Please try again.');
     } finally {
