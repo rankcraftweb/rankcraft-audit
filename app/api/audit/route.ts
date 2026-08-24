@@ -30,7 +30,10 @@ interface AuditResponse {
 
 const LEADS_ENDPOINT = 'https://rankcraftweb.com/wp-json/rankcraft/v1/leads';
 const ALERT_ENDPOINT = 'https://rankcraftweb.com/wp-json/rankcraft/v1/alert';
-const LEADS_TIMEOUT_MS = 5000;
+// The leads endpoint now generates a report token and sends two emails
+// over SMTP before responding, which can take a few seconds - 5s was
+// timing out client-side even though WordPress had already succeeded.
+const LEADS_TIMEOUT_MS = 15000;
 
 /**
  * Best-effort email to the team when a lead fails to save. Failure here
