@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import ScoreCircle from './components/ScoreCircle';
+import AuditResults from './components/AuditResults';
 
 interface PageSpeedResult {
   performance: number;
@@ -15,6 +15,7 @@ interface AuditResponse {
   mobile: PageSpeedResult;
   desktop: PageSpeedResult;
   fetchedAt: string;
+  reportUrl?: string;
 }
 
 declare global {
@@ -149,38 +150,16 @@ export default function Home() {
         )}
 
         {result && (
-          <div className="mt-12 space-y-8">
-            <div className="rounded-2xl bg-[#F4F6F9] p-8">
-              <h2 className="text-lg font-semibold text-[#0C2A4A]">Mobile</h2>
-              <div className="mt-6 grid grid-cols-2 gap-6 sm:flex sm:justify-around">
-                <ScoreCircle label="Performance" score={result.mobile.performance} />
-                <ScoreCircle label="Accessibility" score={result.mobile.accessibility} />
-                <ScoreCircle label="Best Practices" score={result.mobile.bestPractices} />
-                <ScoreCircle label="SEO" score={result.mobile.seo} />
-              </div>
-            </div>
-
-            <div className="rounded-2xl bg-[#F4F6F9] p-8">
-              <h2 className="text-lg font-semibold text-[#0C2A4A]">Desktop</h2>
-              <div className="mt-6 grid grid-cols-2 gap-6 sm:flex sm:justify-around">
-                <ScoreCircle label="Performance" score={result.desktop.performance} />
-                <ScoreCircle label="Accessibility" score={result.desktop.accessibility} />
-                <ScoreCircle label="Best Practices" score={result.desktop.bestPractices} />
-                <ScoreCircle label="SEO" score={result.desktop.seo} />
-              </div>
-            </div>
-
-            <div className="rounded-2xl bg-[#0F3A5F] p-8 text-center">
-              <h3 className="text-xl font-semibold text-white">
-                Want help fixing what&apos;s holding your site back?
-              </h3>
-              <a
-                href="https://rankcraftweb.com/contact"
-                className="mt-4 inline-block rounded-lg bg-[#1D9E75] px-6 py-3 font-medium text-white transition hover:bg-[#178A65]"
-              >
-                Talk to RankCraft
-              </a>
-            </div>
+          <div className="mt-12">
+            <AuditResults mobile={result.mobile} desktop={result.desktop} />
+            {result.reportUrl && (
+              <p className="mt-6 text-center text-sm text-[#63C89F]">
+                Bookmark this report:{' '}
+                <a href={result.reportUrl} className="underline hover:text-white">
+                  {result.reportUrl}
+                </a>
+              </p>
+            )}
           </div>
         )}
       </main>

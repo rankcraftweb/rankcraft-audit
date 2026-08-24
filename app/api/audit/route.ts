@@ -25,6 +25,7 @@ interface AuditResponse {
   mobile: PageSpeedResult;
   desktop: PageSpeedResult;
   fetchedAt: string;
+  reportUrl?: string;
 }
 
 const LEADS_ENDPOINT = 'https://rankcraftweb.com/wp-json/rankcraft/v1/leads';
@@ -69,12 +70,12 @@ async function postLeadToWordPress(
   url: string,
   mobile: PageSpeedResult,
   desktop: PageSpeedResult
-): Promise<void> {
+): Promise<string | undefined> {
   try {
     const secret = process.env.RANKCRAFT_LEADS_SECRET;
     if (!secret) {
       console.error('Lead capture skipped: missing RANKCRAFT_LEADS_SECRET.');
-      return;
+      return undefined;
     }
 
     const res = await fetch(LEADS_ENDPOINT, {
@@ -93,12 +94,17 @@ async function postLeadToWordPress(
       await alertLeadCaptureFailure(
         `Lead: ${name} <${email}>, URL: ${url}\nWordPress responded ${res.status}: ${responseBody}`
       );
+      return undefined;
     }
+
+    const data = await res.json();
+    return typeof data?.reportUrl === 'string' ? data.reportUrl : undefined;
   } catch (err) {
     console.error('Lead capture request failed:', err);
     await alertLeadCaptureFailure(
       `Lead: ${name} <${email}>, URL: ${url}\nRequest to WordPress threw: ${String(err)}`
     );
+    return undefined;
   }
 }
 
@@ -266,7 +272,7 @@ export async function POST(request: NextRequest) {
     };
 
     if (name && email) {
-      await postLeadToWordPress(name, email, targetUrl, mobile, desktop);
+      response.reportUrl = await postLeadToWordPress(name, email, targetUrl, mobile, desktop);
     }
 
     return NextResponse.json(response);
