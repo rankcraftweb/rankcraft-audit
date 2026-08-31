@@ -18,6 +18,13 @@ interface ReportData {
 }
 
 // Shared report links are unlisted, not meant for search results.
+//
+// No `openGraph` key here, deliberately. Metadata is merged *shallowly*,
+// so declaring openGraph in this segment would replace the root layout's
+// entire object - image, description, siteName and all - and leave the
+// card bare again. Inheriting it whole is also the behaviour we want: a
+// report link passed around in Messenger should show the brand, never
+// the audited URL or its scores.
 export const metadata: Metadata = {
   title: 'Audit Report — RankCraft Audit',
   robots: { index: false, follow: false },
