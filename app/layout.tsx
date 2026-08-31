@@ -3,8 +3,11 @@ import Script from "next/script";
 import "./globals.css";
 
 const TITLE = "RankCraft Audit — Free Website Audit";
+// Names all four scores AuditResults renders, in the order they appear
+// on screen. It read "performance, SEO, and accessibility" and left out
+// Best Practices, so the page was promising three of the four it gives.
 const DESCRIPTION =
-  "Get a free performance, SEO, and accessibility audit for your website.";
+  "Get a free audit of your site's performance, accessibility, best practices, and SEO.";
 
 export const metadata: Metadata = {
   // Lets the relative /og-image.png below resolve to an absolute URL,

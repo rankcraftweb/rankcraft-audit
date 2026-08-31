@@ -95,7 +95,7 @@ export default function Home() {
             See exactly where your site stands.
           </h1>
           <p className="mt-4 text-lg text-[#63C89F]">
-            Enter your website URL for a free performance, SEO, and accessibility report.
+            Enter your website URL for a free report on performance, accessibility, best practices, and SEO.
           </p>
         </div>
 
