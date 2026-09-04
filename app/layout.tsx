@@ -25,6 +25,17 @@ export const metadata: Metadata = {
     icon: "/favicon-32.png",
     apple: "/apple-touch-icon.png",
   },
+  // Proves ownership of audit.rankcraftweb.com to Search Console. The
+  // subdomain was in no Search Console property at all, so there was no
+  // way to see whether the audit tool was indexed or drawing any
+  // impressions - and it is the whole lead magnet.
+  //
+  // Not a secret: Google only accepts it when fetched from this domain,
+  // and it has to be publicly readable in the page source to work.
+  // Removing it un-verifies the property.
+  verification: {
+    google: "C1SPJn1OotCFLcECZpPcR0Zm6EO3XM2p6o1u_Z3Hmhg",
+  },
   // Without these the link renders as a bare text card wherever it is
   // shared - Facebook, LinkedIn, Messenger, Slack - and a share by
   // someone else is the only free distribution this tool gets.
