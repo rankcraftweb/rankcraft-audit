@@ -35,7 +35,21 @@ export interface PageSpeedResult {
  * of collapsing every failure into one generic message.
  */
 export class AuditError extends Error {
-  constructor(public readonly userMessage: string, cause?: unknown) {
+  /**
+   * Whether trying again might give a different answer.
+   *
+   * The client retries a failed strategy once, which is right for a
+   * timeout or a PageSpeed 500 - those are queue variance and the same
+   * URL often succeeds seconds later. It is wrong for a verdict about
+   * the site itself: PageSpeed takes ~19s to decide it cannot load a
+   * URL, so retrying that turns a 19s wait into 38s and ends at the
+   * same message.
+   */
+  constructor(
+    public readonly userMessage: string,
+    cause?: unknown,
+    public readonly retryable: boolean = true
+  ) {
     super(userMessage);
     this.cause = cause;
   }
@@ -127,7 +141,8 @@ export async function fetchPageSpeed(
     if (res.status === 400) {
       throw new AuditError(
         "This site couldn't be analyzed. It may be blocking automated tools, redirecting unexpectedly, or temporarily unreachable.",
-        new Error(`PageSpeed API error (${strategy}): ${res.status} ${body}`)
+        new Error(`PageSpeed API error (${strategy}): ${res.status} ${body}`),
+        false
       );
     }
     throw new AuditError(
@@ -142,7 +157,8 @@ export async function fetchPageSpeed(
   if (!categories) {
     throw new AuditError(
       'Could not analyze that URL. Double check it is publicly accessible and try again.',
-      new Error(`Unexpected PageSpeed API response shape (${strategy})`)
+      new Error(`Unexpected PageSpeed API response shape (${strategy})`),
+      false
     );
   }
 

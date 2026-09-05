@@ -48,20 +48,46 @@ function normalizeUrl(value: string): string {
   return 'https://' + trimmed.replace(/^\/+/, '');
 }
 
-function isValidUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value);
-    // A hostname with a dot in it. Without this "https://banana" parses
-    // happily and the audit fails much later with a worse message.
-    return (
-      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
-      parsed.hostname.includes('.') &&
-      !parsed.hostname.startsWith('.') &&
-      !parsed.hostname.endsWith('.')
-    );
-  } catch {
-    return false;
+/**
+ * Why the input is rejected, so the message can say something useful.
+ * `null` means it is fine.
+ *
+ * The email case is not hypothetical. Typing an email address here is
+ * an easy mistake, and `new URL('https://someone@gmail.com')` is
+ * perfectly valid: everything before the @ is parsed as a *username*
+ * and the hostname comes out as gmail.com. A dot check waves that
+ * through, and the visitor then waits three quarters of a minute to be
+ * told the audit failed.
+ */
+function urlProblem(raw: string, normalized: string): string | null {
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw.trim())) {
+    return 'That looks like an email address. This wants the address of a website, like yourwebsite.com';
   }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    return 'That does not look like a website address. Try something like yourwebsite.com';
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return 'Only http and https addresses can be audited.';
+  }
+
+  // Credentials in the address are never right for a site being
+  // audited, and this is what catches an @ that slipped through above.
+  if (parsed.username || parsed.password) {
+    return 'That does not look like a website address. Try something like yourwebsite.com';
+  }
+
+  // A real hostname: labels separated by dots, ending in letters. This
+  // is what stops "banana" (valid to the parser) and "site.c".
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i.test(parsed.hostname)) {
+    return 'That does not look like a website address. Try something like yourwebsite.com';
+  }
+
+  return null;
 }
 
 /**
@@ -107,7 +133,11 @@ export default function Home() {
     const data = await res.json();
 
     if (!res.ok) {
-      throw new Error(data.error || 'Something went wrong. Please try again.');
+      const err = new Error(data.error || 'Something went wrong. Please try again.');
+      // Carried through so runStrategy knows whether a second attempt
+      // is worth the visitor's time.
+      (err as Error & { retryable?: boolean }).retryable = data.retryable !== false;
+      throw err;
     }
 
     return data.scores as PageSpeedResult;
@@ -125,7 +155,13 @@ export default function Home() {
   ): Promise<PageSpeedResult> {
     try {
       return await requestStrategy(targetUrl, strategy);
-    } catch {
+    } catch (err) {
+      // Only where a second attempt could land differently. PageSpeed
+      // takes ~19s to decide it cannot load a site; retrying that
+      // verdict costs another 19s and ends in the same place.
+      if ((err as Error & { retryable?: boolean })?.retryable === false) {
+        throw err;
+      }
       return await requestStrategy(targetUrl, strategy);
     }
   }
@@ -137,9 +173,10 @@ export default function Home() {
     setLeadError(null);
 
     const targetUrl = normalizeUrl(url);
+    const problem = urlProblem(url, targetUrl);
 
-    if (!isValidUrl(targetUrl)) {
-      setError('That does not look like a website address. Try something like yourwebsite.com');
+    if (problem) {
+      setError(problem);
       return;
     }
 

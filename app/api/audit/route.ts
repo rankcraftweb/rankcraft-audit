@@ -102,6 +102,10 @@ export async function POST(request: NextRequest) {
       err instanceof AuditError
         ? err.userMessage
         : 'Could not analyze that URL. Double check it is publicly accessible and try again.';
-    return NextResponse.json({ error: message }, { status: 502 });
+    // The client retries once, but only where a second attempt could
+    // land differently. A verdict about the site would just cost the
+    // visitor another ~19s to reach the same message.
+    const retryable = err instanceof AuditError ? err.retryable : true;
+    return NextResponse.json({ error: message, retryable }, { status: 502 });
   }
 }
