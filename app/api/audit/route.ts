@@ -1,229 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  AuditError,
+  createRateLimiter,
+  fetchPageSpeed,
+  getClientIp,
+  isValidUrl,
+  type PageSpeedResult,
+  type Strategy,
+} from '@/lib/audit';
 
 /**
  * RankCraft Audit API route.
  *
- * Accepts a POST with { url: string }, validates it, then calls Google's
- * PageSpeed Insights API server-side (mobile + desktop) so the API key
- * never reaches the browser. Returns a normalized report shape the
- * frontend can render directly.
+ * Accepts a POST with { url: string, strategy: 'mobile' | 'desktop' },
+ * validates it, then calls Google's PageSpeed Insights API server-side
+ * so the API key never reaches the browser.
+ *
+ * ONE strategy per request. This route used to run both and post the
+ * lead as well, which meant a single 60s invocation had to cover the
+ * slower PageSpeed run plus a 15s WordPress round trip - and measurement
+ * showed that losing most of the time (see lib/audit.ts). The client now
+ * fires mobile and desktop as two parallel requests, so each gets a
+ * whole invocation, and a slow desktop run can no longer throw away a
+ * mobile run that already finished.
  */
 
-// PageSpeed Insights can take up to ~30s per strategy; Vercel's default
-// 10s function timeout would cut that off, so extend it explicitly.
 export const maxDuration = 60;
 
-interface PageSpeedResult {
-  performance: number;
-  accessibility: number;
-  bestPractices: number;
-  seo: number;
-}
-
-interface AuditResponse {
+interface StrategyResponse {
   url: string;
-  mobile: PageSpeedResult;
-  desktop: PageSpeedResult;
+  strategy: Strategy;
+  scores: PageSpeedResult;
   fetchedAt: string;
-  reportUrl?: string;
-}
-
-const LEADS_ENDPOINT = 'https://rankcraftweb.com/wp-json/rankcraft/v1/leads';
-const ALERT_ENDPOINT = 'https://rankcraftweb.com/wp-json/rankcraft/v1/alert';
-// The leads endpoint now generates a report token and sends two emails
-// over SMTP before responding, which can take a few seconds - 5s was
-// timing out client-side even though WordPress had already succeeded.
-const LEADS_TIMEOUT_MS = 15000;
-
-/**
- * Best-effort email to the team when a lead fails to save. Failure here
- * is swallowed too - a broken alert should never take down the audit
- * response, and if rankcraftweb.com itself is unreachable this will
- * fail the same way postLeadToWordPress did, which is an acceptable
- * gap for a lightweight fix.
- */
-async function alertLeadCaptureFailure(message: string): Promise<void> {
-  try {
-    const secret = process.env.RANKCRAFT_LEADS_SECRET;
-    if (!secret) return;
-
-    await fetch(ALERT_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-RankCraft-Secret': secret,
-      },
-      body: JSON.stringify({ message }),
-      signal: AbortSignal.timeout(LEADS_TIMEOUT_MS),
-    });
-  } catch (err) {
-    console.error('Failure alert itself failed to send:', err);
-  }
 }
 
 /**
- * Forwards a captured lead to the WordPress site, server-to-server (no
- * CORS concerns). Best-effort: any failure is caught and logged, never
- * allowed to affect the audit response the frontend is waiting on -
- * but now also emails the team instead of only living in Vercel logs.
+ * 20 rather than 10: one audit is now two calls to this route, so the
+ * old ceiling would have halved what a visitor can actually run.
  */
-async function postLeadToWordPress(
-  name: string,
-  email: string,
-  url: string,
-  mobile: PageSpeedResult,
-  desktop: PageSpeedResult
-): Promise<string | undefined> {
-  try {
-    const secret = process.env.RANKCRAFT_LEADS_SECRET;
-    if (!secret) {
-      console.error('Lead capture skipped: missing RANKCRAFT_LEADS_SECRET.');
-      return undefined;
-    }
+const isRateLimited = createRateLimiter(20, 60 * 60 * 1000);
 
-    const res = await fetch(LEADS_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-RankCraft-Secret': secret,
-      },
-      body: JSON.stringify({ name, email, url, mobile, desktop }),
-      signal: AbortSignal.timeout(LEADS_TIMEOUT_MS),
-    });
-
-    if (!res.ok) {
-      const responseBody = await res.text();
-      console.error(`Lead capture failed (${res.status}): ${responseBody}`);
-      await alertLeadCaptureFailure(
-        `Lead: ${name} <${email}>, URL: ${url}\nWordPress responded ${res.status}: ${responseBody}`
-      );
-      return undefined;
-    }
-
-    const data = await res.json();
-    return typeof data?.reportUrl === 'string' ? data.reportUrl : undefined;
-  } catch (err) {
-    console.error('Lead capture request failed:', err);
-    await alertLeadCaptureFailure(
-      `Lead: ${name} <${email}>, URL: ${url}\nRequest to WordPress threw: ${String(err)}`
-    );
-    return undefined;
-  }
-}
-
-/**
- * Very lightweight per-instance rate limit: 10 audits per IP per hour.
- * Backed by an in-memory Map, so it resets on cold start and isn't
- * shared across concurrent Vercel instances - not meant to stop a
- * determined attacker, just casual abuse burning PageSpeed API quota,
- * same spirit as the WordPress leads endpoint's own IP throttle.
- */
-const RATE_LIMIT_MAX = 10;
-const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
-const rateLimitHits = new Map<string, { count: number; resetAt: number }>();
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitHits.get(ip);
-
-  if (!entry || now > entry.resetAt) {
-    rateLimitHits.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return false;
-  }
-
-  entry.count += 1;
-  return entry.count > RATE_LIMIT_MAX;
-}
-
-function getClientIp(request: NextRequest): string {
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  return forwardedFor?.split(',')[0]?.trim() || 'unknown';
-}
-
-function isValidUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
-const PAGESPEED_TIMEOUT_MS = 45000;
-
-/**
- * A small typed error so the outer handler can tell a "this site can't
- * be audited" failure apart from a timeout or an unexpected shape,
- * instead of collapsing every failure into one generic message.
- */
-class AuditError extends Error {
-  constructor(public readonly userMessage: string, cause?: unknown) {
-    super(userMessage);
-    this.cause = cause;
-  }
-}
-
-async function fetchPageSpeed(
-  targetUrl: string,
-  strategy: 'mobile' | 'desktop',
-  apiKey: string
-): Promise<PageSpeedResult> {
-  const endpoint = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed');
-  endpoint.searchParams.set('url', targetUrl);
-  endpoint.searchParams.set('strategy', strategy);
-  endpoint.searchParams.set('key', apiKey);
-  ['performance', 'accessibility', 'best-practices', 'seo'].forEach((cat) =>
-    endpoint.searchParams.append('category', cat)
-  );
-
-  let res: Response;
-  try {
-    res = await fetch(endpoint.toString(), {
-      signal: AbortSignal.timeout(PAGESPEED_TIMEOUT_MS),
-    });
-  } catch (err) {
-    if (err instanceof Error && err.name === 'TimeoutError') {
-      throw new AuditError(
-        'That site took too long to analyze. It might be slow to respond right now, try again in a moment.',
-        err
-      );
-    }
-    throw new AuditError('Could not reach the PageSpeed service. Please try again.', err);
-  }
-
-  if (!res.ok) {
-    const body = await res.text();
-    // PageSpeed returns 400 for sites Lighthouse itself couldn't load
-    // (DNS failure, blocked by robots.txt, redirects, timeouts on their
-    // end) - that's a "this site" problem, not a "this service" problem.
-    if (res.status === 400) {
-      throw new AuditError(
-        "This site couldn't be analyzed. It may be blocking automated tools, redirecting unexpectedly, or temporarily unreachable.",
-        new Error(`PageSpeed API error (${strategy}): ${res.status} ${body}`)
-      );
-    }
-    throw new AuditError(
-      'The PageSpeed service had a problem on its end. Please try again in a moment.',
-      new Error(`PageSpeed API error (${strategy}): ${res.status} ${body}`)
-    );
-  }
-
-  const data = await res.json();
-  const categories = data?.lighthouseResult?.categories;
-
-  if (!categories) {
-    throw new AuditError(
-      'Could not analyze that URL. Double check it is publicly accessible and try again.',
-      new Error(`Unexpected PageSpeed API response shape (${strategy})`)
-    );
-  }
-
-  return {
-    performance: Math.round((categories.performance?.score ?? 0) * 100),
-    accessibility: Math.round((categories.accessibility?.score ?? 0) * 100),
-    bestPractices: Math.round((categories['best-practices']?.score ?? 0) * 100),
-    seo: Math.round((categories.seo?.score ?? 0) * 100),
-  };
+function isStrategy(value: unknown): value is Strategy {
+  return value === 'mobile' || value === 'desktop';
 }
 
 export async function POST(request: NextRequest) {
@@ -243,7 +61,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: { url?: string; name?: string; email?: string };
+  let body: { url?: string; strategy?: string };
   try {
     body = await request.json();
   } catch {
@@ -251,8 +69,6 @@ export async function POST(request: NextRequest) {
   }
 
   const targetUrl = body.url?.trim();
-  const name = body.name?.trim();
-  const email = body.email?.trim();
 
   if (!targetUrl || !isValidUrl(targetUrl)) {
     return NextResponse.json(
@@ -261,22 +77,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  try {
-    const [mobile, desktop] = await Promise.all([
-      fetchPageSpeed(targetUrl, 'mobile', apiKey),
-      fetchPageSpeed(targetUrl, 'desktop', apiKey),
-    ]);
+  if (!isStrategy(body.strategy)) {
+    return NextResponse.json(
+      { error: "Missing or unknown strategy. Expected 'mobile' or 'desktop'." },
+      { status: 400 }
+    );
+  }
 
-    const response: AuditResponse = {
+  try {
+    const scores = await fetchPageSpeed(targetUrl, body.strategy, apiKey);
+
+    const response: StrategyResponse = {
       url: targetUrl,
-      mobile,
-      desktop,
+      strategy: body.strategy,
+      scores,
       fetchedAt: new Date().toISOString(),
     };
-
-    if (name && email) {
-      response.reportUrl = await postLeadToWordPress(name, email, targetUrl, mobile, desktop);
-    }
 
     return NextResponse.json(response);
   } catch (err) {

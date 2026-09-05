@@ -32,6 +32,29 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AuditResponse | null>(null);
 
+  /**
+   * One strategy, one request. Mobile and desktop used to be a single
+   * call that ran both server-side and waited on the slower one, which
+   * routinely overran the function budget - a desktop run stuck at 45s
+   * threw away a mobile run that had finished in 18s. Two requests give
+   * each strategy the whole budget.
+   */
+  async function runStrategy(strategy: 'mobile' | 'desktop'): Promise<PageSpeedResult> {
+    const res = await fetch('/api/audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, strategy }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || 'Something went wrong. Please try again.');
+    }
+
+    return data.scores as PageSpeedResult;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -39,28 +62,58 @@ export default function Home() {
     setResult(null);
 
     try {
-      const res = await fetch('/api/audit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, name, email }),
-      });
+      const [mobile, desktop] = await Promise.all([
+        runStrategy('mobile'),
+        runStrategy('desktop'),
+      ]);
 
-      const data = await res.json();
+      const audit: AuditResponse = {
+        url,
+        mobile,
+        desktop,
+        fetchedAt: new Date().toISOString(),
+      };
 
-      if (!res.ok) {
-        setError(data.error || 'Something went wrong. Please try again.');
-        return;
-      }
-
-      setResult(data);
+      setResult(audit);
+      // Before the lead post, not after it: the report is ready, and
+      // leaving the button spinning through an email send the visitor
+      // did not ask for is the delay this whole change set out to
+      // remove. The finally below covers the error path.
+      setLoading(false);
 
       if (name && email && typeof window.gtag === 'function') {
         window.gtag('event', 'generate_lead', {
           audited_url: url,
         });
       }
-    } catch {
-      setError('Could not reach the audit service. Please try again.');
+
+      // The scores are already on screen at this point. Saving the lead
+      // and sending the emails is our business, not something to make
+      // the visitor sit through, so it runs after the render and only
+      // adds the shareable link if it succeeds. A failure here is
+      // deliberately invisible to them - it is already alerted on the
+      // server side.
+      if (name && email) {
+        try {
+          const leadRes = await fetch('/api/lead', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, name, email, mobile, desktop }),
+          });
+          const leadData = await leadRes.json();
+          if (leadRes.ok && typeof leadData?.reportUrl === 'string') {
+            setResult({ ...audit, reportUrl: leadData.reportUrl });
+          }
+        } catch {
+          // Nothing to show the visitor; their report is already up.
+        }
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Could not reach the audit service. Please try again.'
+      );
     } finally {
       setLoading(false);
     }
