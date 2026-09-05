@@ -22,19 +22,38 @@ tells nobody about the tool.
 
 ```
 page.tsx (client)
+
+STEP 1 - the visitor gives a URL and nothing else
   ├─ POST /api/audit  { url, strategy: 'mobile'  }  ─┐ in parallel,
   └─ POST /api/audit  { url, strategy: 'desktop' }  ─┘ one retry each
        ├─ rate limit check (per IP)
        └─ fetchPageSpeed() → PageSpeed Insights
   ← { url, strategy, scores, fetchedAt }
-  │
-  ├─ render the scores, stop the spinner
-  ├─ gtag('generate_lead') fires, only when name+email present
+  ├─ render every score, stop the spinner
+  └─ gtag('audit_completed')
+
+STEP 2 - only if the visitor chooses to, having seen the scores
   └─ POST /api/lead  { url, name, email, mobile, desktop }
-       └─ WordPress ─ best effort ─┐
+       └─ WordPress ─┐
             └─ on failure → alertLeadCaptureFailure()
-  ← { reportUrl? }  → adds the bookmark line
+  ← { reportUrl }  → bookmark line, and gtag('generate_lead')
 ```
+
+**The email is asked for after the scores, not before.** The page used
+to gate the audit behind name + email + URL. GA4, Aug 8 - Sep 4 2026:
+nine people reached it, averaged **12 seconds**, and `generate_lead`
+never fired once — the tool had produced zero leads in its life. Twelve
+seconds cannot contain three fields plus a PageSpeed wait, so they were
+leaving before submitting. Not a bug: the pipeline was verified working
+end to end the same day. Do not reinstate the up-front gate without
+numbers saying it beats this.
+
+`audit_completed` and `generate_lead` are the funnel and only mean
+something as a pair — how many finish an audit, and how many of those
+convert. A zero in one alone cannot tell you which half is broken, which
+is exactly the question that took a full investigation to answer once.
+Note `generate_lead` is not registered as a **key event** in GA4, so the
+conversions column reads 0 regardless until someone sets it.
 
 **One strategy per request, deliberately.** Both used to run in one
 invocation under `Promise.all`, so a 60s budget had to cover the slower
