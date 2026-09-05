@@ -12,8 +12,9 @@ interface PageSpeedResult {
 
 interface AuditResponse {
   url: string;
-  mobile: PageSpeedResult;
-  desktop: PageSpeedResult;
+  // Optional: a strategy PageSpeed never returned is absent, not zeroed.
+  mobile?: PageSpeedResult;
+  desktop?: PageSpeedResult;
   fetchedAt: string;
   reportUrl?: string;
 }
@@ -84,61 +85,75 @@ export default function Home() {
     setError(null);
     setResult(null);
 
-    try {
-      const [mobile, desktop] = await Promise.all([
-        runStrategy('mobile'),
-        runStrategy('desktop'),
-      ]);
+    // allSettled, not all. Splitting the request gave each strategy its
+    // own budget and the retry gave each a second chance, but as long as
+    // both were awaited together a strategy that failed twice still
+    // discarded one that had succeeded. Half a report is worth far more
+    // to the visitor than an error page, and mobile is the half that
+    // decides how Google ranks them.
+    const [mobileOutcome, desktopOutcome] = await Promise.allSettled([
+      runStrategy('mobile'),
+      runStrategy('desktop'),
+    ]);
 
-      const audit: AuditResponse = {
-        url,
-        mobile,
-        desktop,
-        fetchedAt: new Date().toISOString(),
-      };
+    const mobile = mobileOutcome.status === 'fulfilled' ? mobileOutcome.value : undefined;
+    const desktop = desktopOutcome.status === 'fulfilled' ? desktopOutcome.value : undefined;
 
-      setResult(audit);
-      // Before the lead post, not after it: the report is ready, and
-      // leaving the button spinning through an email send the visitor
-      // did not ask for is the delay this whole change set out to
-      // remove. The finally below covers the error path.
-      setLoading(false);
-
-      if (name && email && typeof window.gtag === 'function') {
-        window.gtag('event', 'generate_lead', {
-          audited_url: url,
-        });
-      }
-
-      // The scores are already on screen at this point. Saving the lead
-      // and sending the emails is our business, not something to make
-      // the visitor sit through, so it runs after the render and only
-      // adds the shareable link if it succeeds. A failure here is
-      // deliberately invisible to them - it is already alerted on the
-      // server side.
-      if (name && email) {
-        try {
-          const leadRes = await fetch('/api/lead', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, name, email, mobile, desktop }),
-          });
-          const leadData = await leadRes.json();
-          if (leadRes.ok && typeof leadData?.reportUrl === 'string') {
-            setResult({ ...audit, reportUrl: leadData.reportUrl });
-          }
-        } catch {
-          // Nothing to show the visitor; their report is already up.
-        }
-      }
-    } catch (err) {
+    if (!mobile && !desktop) {
+      // Both gone. Report whichever reason we have - they are usually
+      // the same failure, and it is more specific than a generic line.
+      const reason = mobileOutcome.status === 'rejected' ? mobileOutcome.reason : undefined;
       setError(
-        err instanceof Error && err.message
-          ? err.message
+        reason instanceof Error && reason.message
+          ? reason.message
           : 'Could not reach the audit service. Please try again.'
       );
-    } finally {
       setLoading(false);
+      return;
+    }
+
+    const audit: AuditResponse = {
+      url,
+      mobile,
+      desktop,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    setResult(audit);
+    // Before the lead post, not after it: the report is ready, and
+    // leaving the button spinning through an email send the visitor did
+    // not ask for is the delay this whole change set out to remove.
+    setLoading(false);
+
+    if (name && email && typeof window.gtag === 'function') {
+      window.gtag('event', 'generate_lead', {
+        audited_url: url,
+      });
+    }
+
+    // The scores are already on screen at this point. Saving the lead
+    // and sending the emails is our business, not something to make the
+    // visitor sit through, so it runs after the render and only adds the
+    // shareable link if it succeeds. A failure here is deliberately
+    // invisible to them - it is already alerted on the server side.
+    //
+    // JSON.stringify drops an undefined value, so a strategy that failed
+    // is simply absent from the payload rather than sent as zeros. That
+    // is the contract WordPress expects: absent means "never measured".
+    if (name && email) {
+      try {
+        const leadRes = await fetch('/api/lead', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, name, email, mobile, desktop }),
+        });
+        const leadData = await leadRes.json();
+        if (leadRes.ok && typeof leadData?.reportUrl === 'string') {
+          setResult({ ...audit, reportUrl: leadData.reportUrl });
+        }
+      } catch {
+        // Nothing to show the visitor; their report is already up.
+      }
     }
   }
 

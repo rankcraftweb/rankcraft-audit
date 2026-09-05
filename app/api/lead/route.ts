@@ -67,9 +67,19 @@ async function alertLeadCaptureFailure(message: string): Promise<void> {
  * Clamp whatever the browser sent into the 0-100 integers WordPress
  * expects. The scores now arrive from the client rather than straight
  * out of fetchPageSpeed, so they are input, not internal state.
+ *
+ * Returns undefined for a strategy that is absent, and passes that
+ * absence through to WordPress rather than substituting zeros. A
+ * strategy PageSpeed never answered for is unknown, not a score of nil,
+ * and a lead recording 0 across the board would misrepresent the site
+ * in the visitor's own emailed report.
  */
-function normalizeScores(value: unknown): PageSpeedResult {
-  const raw = (value ?? {}) as Record<string, unknown>;
+function normalizeScores(value: unknown): PageSpeedResult | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const raw = value as Record<string, unknown>;
   const clamp = (n: unknown) => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
 
   return {
@@ -115,13 +125,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ reportUrl: undefined });
   }
 
-  const payload = {
-    name,
-    email,
-    url: targetUrl,
-    mobile: normalizeScores(body.mobile),
-    desktop: normalizeScores(body.desktop),
-  };
+  const mobile = normalizeScores(body.mobile);
+  const desktop = normalizeScores(body.desktop);
+
+  if (!mobile && !desktop) {
+    return NextResponse.json(
+      { error: 'At least one of mobile or desktop scores is required.' },
+      { status: 400 }
+    );
+  }
+
+  // JSON.stringify omits undefined values, so a strategy that was never
+  // measured simply does not appear in the request WordPress receives.
+  const payload = { name, email, url: targetUrl, mobile, desktop };
 
   try {
     const res = await fetch(LEADS_ENDPOINT, {

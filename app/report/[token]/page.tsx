@@ -70,7 +70,10 @@ export default async function ReportPage({
       </header>
 
       <main className="mx-auto max-w-3xl px-6 py-16">
-        {report.success && report.mobile && report.desktop ? (
+        {/* One strategy is enough to render a report. WordPress omits a
+            strategy it never received rather than storing zeros, so a
+            partial report arrives here with one side simply absent. */}
+        {report.success && (report.mobile || report.desktop) ? (
           <>
             <div className="text-center">
               <p className="text-sm font-medium uppercase tracking-widest text-[#1D9E75]">
