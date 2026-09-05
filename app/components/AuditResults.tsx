@@ -19,6 +19,13 @@ interface PageSpeedResult {
 interface AuditResultsProps {
   mobile?: PageSpeedResult;
   desktop?: PageSpeedResult;
+  /**
+   * Rendered between the scores and the "Talk to RankCraft" block. The
+   * audit page puts its email-capture card here so the soft ask comes
+   * before the hard one; the shared report page passes nothing and the
+   * CTA closes the page as before.
+   */
+  children?: React.ReactNode;
 }
 
 function ScorePanel({ label, scores }: { label: string; scores: PageSpeedResult }) {
@@ -35,7 +42,7 @@ function ScorePanel({ label, scores }: { label: string; scores: PageSpeedResult 
   );
 }
 
-export default function AuditResults({ mobile, desktop }: AuditResultsProps) {
+export default function AuditResults({ mobile, desktop, children }: AuditResultsProps) {
   const missing = [!mobile && 'Mobile', !desktop && 'Desktop'].filter(Boolean) as string[];
 
   return (
@@ -56,6 +63,8 @@ export default function AuditResults({ mobile, desktop }: AuditResultsProps) {
           </p>
         </div>
       )}
+
+      {children}
 
       <div className="rounded-2xl bg-[#0F3A5F] p-8 text-center">
         <h3 className="text-xl font-semibold text-white">

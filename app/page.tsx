@@ -233,10 +233,9 @@ export default function Home() {
 
         {result && (
           <div className="mt-12">
-            <AuditResults mobile={result.mobile} desktop={result.desktop} />
-
+            <AuditResults mobile={result.mobile} desktop={result.desktop}>
             {result.reportUrl ? (
-              <div className="mt-8 rounded-2xl border border-[#1D9E75]/40 bg-[#0F3A5F] p-8 text-center">
+              <div className="rounded-2xl border border-[#1D9E75]/40 bg-[#0F3A5F] p-8 text-center">
                 <p className="font-semibold text-white">Sent. Check your inbox.</p>
                 <p className="mt-3 text-sm text-[#63C89F]">
                   Bookmark this report:{' '}
@@ -248,7 +247,7 @@ export default function Home() {
             ) : (
               <form
                 onSubmit={handleLeadSubmit}
-                className="mt-8 rounded-2xl border border-white/10 bg-[#0F3A5F] p-8"
+                className="rounded-2xl border border-white/10 bg-[#0F3A5F] p-8"
               >
                 <h3 className="text-lg font-semibold text-white">Want to keep this report?</h3>
                 <p className="mt-2 text-sm text-[#63C89F]">
@@ -289,6 +288,7 @@ export default function Home() {
                 </p>
               </form>
             )}
+            </AuditResults>
           </div>
         )}
       </main>
