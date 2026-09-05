@@ -22,17 +22,41 @@ tells nobody about the tool.
 
 ```
 page.tsx (client)
-  └─ POST /api/audit  { url, name, email }
+  ├─ POST /api/audit  { url, strategy: 'mobile'  }  ─┐ in parallel,
+  └─ POST /api/audit  { url, strategy: 'desktop' }  ─┘ one retry each
        ├─ rate limit check (per IP)
-       ├─ Promise.all → PageSpeed Insights, mobile + desktop
-       └─ postLeadToWordPress()  ─ best effort ─┐
+       └─ fetchPageSpeed() → PageSpeed Insights
+  ← { url, strategy, scores, fetchedAt }
+  │
+  ├─ render the scores, stop the spinner
+  ├─ gtag('generate_lead') fires, only when name+email present
+  └─ POST /api/lead  { url, name, email, mobile, desktop }
+       └─ WordPress ─ best effort ─┐
             └─ on failure → alertLeadCaptureFailure()
-  ← { url, mobile, desktop, fetchedAt, reportUrl? }
-  └─ gtag('generate_lead') fires client-side, only when name+email present
+  ← { reportUrl? }  → adds the bookmark line
 ```
+
+**One strategy per request, deliberately.** Both used to run in one
+invocation under `Promise.all`, so a 60s budget had to cover the slower
+PageSpeed run plus a 15s WordPress post. Measured 2026-09-05, eight
+paired runs over four sites: five exceeded the old 45s ceiling, and
+three of those were killed by desktop while mobile had already finished
+in 18s. Separate invocations give each strategy the whole budget
+(`PAGESPEED_TIMEOUT_MS` is now 55s).
+
+**The retry is not optional decoration.** Splitting alone did not fix
+it — the client still awaits both, so one failure sank a finished
+result. PageSpeed's slow runs and its 500s look like queue variance, not
+anything about the target site: the same URL times out and then answers
+in 15s. One retry, capped, because the visitor is waiting.
 
 `reportUrl` is absent whenever lead capture failed. The frontend already
 handles that (the bookmark line just does not render) — keep it optional.
+
+**Still open:** if one strategy fails both attempts and the other
+succeeded, the visitor gets an error and none of the scores. Rendering a
+partial report would need `AuditResults` to accept a missing side, and
+the WordPress lead payload still requires both.
 
 ## This app is coupled to the WordPress site
 
@@ -41,8 +65,8 @@ them live in this repo:
 
 | Endpoint | Called from | Purpose |
 |---|---|---|
-| `POST /wp-json/rankcraft/v1/leads` | `app/api/audit/route.ts` | saves the lead, sends two SMTP emails, returns `reportUrl` |
-| `POST /wp-json/rankcraft/v1/alert` | `app/api/audit/route.ts` | emails the team when lead capture fails |
+| `POST /wp-json/rankcraft/v1/leads` | `app/api/lead/route.ts` | saves the lead, sends two SMTP emails, returns `reportUrl` |
+| `POST /wp-json/rankcraft/v1/alert` | `app/api/lead/route.ts` | emails the team when lead capture fails |
 | `GET /wp-json/rankcraft/v1/report/{token}` | `app/report/[token]/page.tsx` | serves a shared report |
 
 Both POSTs authenticate with the `X-RankCraft-Secret` header. **Changing the
@@ -60,6 +84,12 @@ changes that window, this string has to follow.
 |---|---|---|
 | `PAGESPEED_API_KEY` | Vercel → Settings → Environment Variables | `/api/audit` returns 500 immediately |
 | `RANKCRAFT_LEADS_SECRET` | same | audits still work; **every lead is silently dropped** |
+
+Both were verified present and correct on 2026-09-05 by running a real
+audit end to end: scores rendered, the lead reached WordPress, and
+`reportUrl` came back. So a `0` lead count is not evidence of a broken
+pipeline — check GA4 for traffic to `audit.rankcraftweb.com` before
+suspecting the code.
 
 Locally both go in `.env.local`, which is gitignored. Never paste either
 value into a chat, a commit, or a file in this repo — read them from Vercel
