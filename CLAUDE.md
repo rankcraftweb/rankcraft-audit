@@ -53,10 +53,20 @@ in 15s. One retry, capped, because the visitor is waiting.
 `reportUrl` is absent whenever lead capture failed. The frontend already
 handles that (the bookmark line just does not render) — keep it optional.
 
-**Still open:** if one strategy fails both attempts and the other
-succeeded, the visitor gets an error and none of the scores. Rendering a
-partial report would need `AuditResults` to accept a missing side, and
-the WordPress lead payload still requires both.
+**A report can be half a report.** `Promise.allSettled`, not `all`: if
+one strategy fails both attempts and the other succeeded, the visitor
+gets the half that worked plus a note saying what is missing. Only both
+failing is an error. Mobile is the half that decides how Google ranks
+them, so half is worth far more than an error page.
+
+A strategy that was never measured is **absent** from the lead payload,
+never zeroed — `JSON.stringify` drops `undefined`, and both `/api/lead`
+and WordPress reject a payload with neither. Zero is a real score, and a
+lead recording 0 across the board would misrepresent the site in the
+visitor's own emailed copy. WordPress stores `_rc_measured` alongside
+the scores so nothing downstream has to guess whether a 0 is real; an
+empty `_rc_measured` means **both** (leads predating the change), not
+neither.
 
 ## This app is coupled to the WordPress site
 
