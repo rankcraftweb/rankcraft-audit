@@ -26,6 +26,45 @@ declare global {
 }
 
 /**
+ * Nobody types "https://".
+ *
+ * The field was `type="url"`, so a browser refused "rankcraftweb.com"
+ * with its own tooltip before the form ever ran - the visitor is asked
+ * to know a detail that only matters to the parser. Worse on a phone,
+ * where the scheme is a dozen taps and the keyboard capitalises the
+ * first letter.
+ *
+ * So the field takes text and this puts the scheme on. A string that
+ * already carries some other scheme is left alone rather than having
+ * https:// stuck in front of it, so validation can reject it honestly
+ * instead of producing "https://ftp://…".
+ */
+function normalizeUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
+  // Protocol-relative input would otherwise become https:////host.
+  return 'https://' + trimmed.replace(/^\/+/, '');
+}
+
+function isValidUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    // A hostname with a dot in it. Without this "https://banana" parses
+    // happily and the audit fails much later with a worse message.
+    return (
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+      parsed.hostname.includes('.') &&
+      !parsed.hostname.startsWith('.') &&
+      !parsed.hostname.endsWith('.')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The audit is free before the email, not after it.
  *
  * This page used to ask for a name, an email and a URL before showing
@@ -52,11 +91,17 @@ export default function Home() {
   const [leadLoading, setLeadLoading] = useState(false);
   const [leadError, setLeadError] = useState<string | null>(null);
 
-  async function requestStrategy(strategy: 'mobile' | 'desktop'): Promise<PageSpeedResult> {
+  // targetUrl is passed rather than read from state: handleSubmit
+  // normalizes the input, and setUrl has not landed by the time these
+  // run, so the closure would still hold what the visitor typed.
+  async function requestStrategy(
+    targetUrl: string,
+    strategy: 'mobile' | 'desktop'
+  ): Promise<PageSpeedResult> {
     const res = await fetch('/api/audit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, strategy }),
+      body: JSON.stringify({ url: targetUrl, strategy }),
     });
 
     const data = await res.json();
@@ -74,26 +119,39 @@ export default function Home() {
    * then answers in 15s. Capped at one because the visitor is waiting,
    * and two failures in a row mean a third is unlikely to differ.
    */
-  async function runStrategy(strategy: 'mobile' | 'desktop'): Promise<PageSpeedResult> {
+  async function runStrategy(
+    targetUrl: string,
+    strategy: 'mobile' | 'desktop'
+  ): Promise<PageSpeedResult> {
     try {
-      return await requestStrategy(strategy);
+      return await requestStrategy(targetUrl, strategy);
     } catch {
-      return await requestStrategy(strategy);
+      return await requestStrategy(targetUrl, strategy);
     }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
     setError(null);
     setResult(null);
     setLeadError(null);
 
+    const targetUrl = normalizeUrl(url);
+
+    if (!isValidUrl(targetUrl)) {
+      setError('That does not look like a website address. Try something like yourwebsite.com');
+      return;
+    }
+
+    // Show the visitor what is actually being audited, scheme and all.
+    setUrl(targetUrl);
+    setLoading(true);
+
     // allSettled, not all: one strategy failing twice must not discard
     // the other, and mobile is the half that decides how Google ranks.
     const [mobileOutcome, desktopOutcome] = await Promise.allSettled([
-      runStrategy('mobile'),
-      runStrategy('desktop'),
+      runStrategy(targetUrl, 'mobile'),
+      runStrategy(targetUrl, 'desktop'),
     ]);
 
     const mobile = mobileOutcome.status === 'fulfilled' ? mobileOutcome.value : undefined;
@@ -110,7 +168,7 @@ export default function Home() {
       return;
     }
 
-    setResult({ url, mobile, desktop, fetchedAt: new Date().toISOString() });
+    setResult({ url: targetUrl, mobile, desktop, fetchedAt: new Date().toISOString() });
     setLoading(false);
 
     // Separate from generate_lead on purpose. These two events are the
@@ -119,7 +177,7 @@ export default function Home() {
     // whether nobody ran an audit or nobody converted after one.
     if (typeof window.gtag === 'function') {
       window.gtag('event', 'audit_completed', {
-        audited_url: url,
+        audited_url: targetUrl,
         partial: !mobile || !desktop,
       });
     }
@@ -200,12 +258,21 @@ export default function Home() {
 
         <form onSubmit={handleSubmit} className="mt-10">
           <div className="flex flex-col gap-3 sm:flex-row">
+            {/* text, not url: type="url" makes the browser reject
+                "yourwebsite.com" before the form runs. inputMode keeps
+                the URL keyboard on a phone, and autoCapitalize is off
+                because iOS otherwise sends "Yourwebsite.com". */}
             <input
-              type="url"
+              type="text"
+              inputMode="url"
+              autoComplete="url"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               required
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://yourwebsite.com"
+              placeholder="yourwebsite.com"
               className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
             />
             <button
