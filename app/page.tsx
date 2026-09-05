@@ -234,60 +234,60 @@ export default function Home() {
         {result && (
           <div className="mt-12">
             <AuditResults mobile={result.mobile} desktop={result.desktop}>
-            {result.reportUrl ? (
-              <div className="rounded-2xl border border-[#1D9E75]/40 bg-[#0F3A5F] p-8 text-center">
-                <p className="font-semibold text-white">Sent. Check your inbox.</p>
-                <p className="mt-3 text-sm text-[#63C89F]">
-                  Bookmark this report:{' '}
-                  <a href={result.reportUrl} className="underline hover:text-white">
-                    {result.reportUrl}
-                  </a>
-                </p>
-              </div>
-            ) : (
-              <form
-                onSubmit={handleLeadSubmit}
-                className="rounded-2xl border border-white/10 bg-[#0F3A5F] p-8"
-              >
-                <h3 className="text-lg font-semibold text-white">Want to keep this report?</h3>
-                <p className="mt-2 text-sm text-[#63C89F]">
-                  I&apos;ll email you a copy and a link you can come back to or send to whoever
-                  looks after your site.
-                </p>
-
-                <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                  <input
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Your name"
-                    className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
-                  />
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@company.com"
-                    className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
-                  />
-                  <button
-                    type="submit"
-                    disabled={leadLoading}
-                    className="rounded-lg bg-[#1D9E75] px-6 py-3 font-medium text-white transition hover:bg-[#178A65] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {leadLoading ? 'Sending…' : 'Email it to me'}
-                  </button>
+              {result.reportUrl ? (
+                <div className="rounded-2xl border border-[#1D9E75]/40 bg-[#0F3A5F] p-8 text-center">
+                  <p className="font-semibold text-white">Sent. Check your inbox.</p>
+                  <p className="mt-3 text-sm text-[#63C89F]">
+                    Bookmark this report:{' '}
+                    <a href={result.reportUrl} className="underline hover:text-white">
+                      {result.reportUrl}
+                    </a>
+                  </p>
                 </div>
+              ) : (
+                <form
+                  onSubmit={handleLeadSubmit}
+                  className="rounded-2xl border border-white/10 bg-[#0F3A5F] p-8"
+                >
+                  <h3 className="text-lg font-semibold text-white">Want to keep this report?</h3>
+                  <p className="mt-2 text-sm text-[#63C89F]">
+                    I&apos;ll email you a copy and a link you can come back to or send to whoever
+                    looks after your site.
+                  </p>
 
-                {leadError && <p className="mt-4 text-sm text-[#F4B4B4]">{leadError}</p>}
+                  <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                    <input
+                      type="text"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Your name"
+                      className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
+                    />
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@company.com"
+                      className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={leadLoading}
+                      className="rounded-lg bg-[#1D9E75] px-6 py-3 font-medium text-white transition hover:bg-[#178A65] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {leadLoading ? 'Sending…' : 'Email it to me'}
+                    </button>
+                  </div>
 
-                <p className="mt-4 text-xs text-white/40">
-                  One email with your results. No list, no newsletter.
-                </p>
-              </form>
-            )}
+                  {leadError && <p className="mt-4 text-sm text-[#F4B4B4]">{leadError}</p>}
+
+                  <p className="mt-4 text-xs text-white/40">
+                    One email with your results. No list, no newsletter.
+                  </p>
+                </form>
+              )}
             </AuditResults>
           </div>
         )}
