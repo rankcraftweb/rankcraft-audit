@@ -25,21 +25,33 @@ declare global {
   }
 }
 
+/**
+ * The audit is free before the email, not after it.
+ *
+ * This page used to ask for a name, an email and a URL before showing
+ * anything. Measured in GA4 over Aug 8 - Sep 4 2026: 9 people reached
+ * it, stayed an average of 12 seconds, and `generate_lead` never fired
+ * once. Twelve seconds does not contain typing three fields and waiting
+ * for PageSpeed - they were leaving before they submitted. The tool had
+ * produced zero leads in its lifetime, and it was not the code: the
+ * pipeline was verified working end to end the same day.
+ *
+ * So the ask moves to after the value. A stranger gives an email for
+ * something they have seen; asking first prices a free tool at a cost
+ * they cannot yet judge. Someone who declines still leaves having got
+ * their scores and seen whose tool gave them.
+ */
 export default function Home() {
   const [url, setUrl] = useState('');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AuditResponse | null>(null);
 
-  /**
-   * One strategy, one request. Mobile and desktop used to be a single
-   * call that ran both server-side and waited on the slower one, which
-   * routinely overran the function budget - a desktop run stuck at 45s
-   * threw away a mobile run that had finished in 18s. Two requests give
-   * each strategy the whole budget.
-   */
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [leadLoading, setLeadLoading] = useState(false);
+  const [leadError, setLeadError] = useState<string | null>(null);
+
   async function requestStrategy(strategy: 'mobile' | 'desktop'): Promise<PageSpeedResult> {
     const res = await fetch('/api/audit', {
       method: 'POST',
@@ -57,19 +69,10 @@ export default function Home() {
   }
 
   /**
-   * One retry, because splitting the request was not enough on its own.
-   *
-   * Testing the split showed a run where mobile returned in 18s and
-   * desktop hit the ceiling - and the report still failed, because both
-   * are awaited together. Separate invocations stopped the two
-   * strategies sharing a budget; they did not stop one failure from
-   * sinking a finished result.
-   *
-   * PageSpeed's slow runs look like queue variance rather than anything
-   * about the site: the same URL that timed out came back in 15s
-   * minutes later. A second attempt usually lands. It is capped at one
-   * because the visitor is waiting, and two failures in a row mean the
-   * next attempt is unlikely to be different.
+   * One retry. PageSpeed's slow runs and its 500s are queue variance
+   * rather than anything about the site - the same URL times out and
+   * then answers in 15s. Capped at one because the visitor is waiting,
+   * and two failures in a row mean a third is unlikely to differ.
    */
   async function runStrategy(strategy: 'mobile' | 'desktop'): Promise<PageSpeedResult> {
     try {
@@ -84,13 +87,10 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setLeadError(null);
 
-    // allSettled, not all. Splitting the request gave each strategy its
-    // own budget and the retry gave each a second chance, but as long as
-    // both were awaited together a strategy that failed twice still
-    // discarded one that had succeeded. Half a report is worth far more
-    // to the visitor than an error page, and mobile is the half that
-    // decides how Google ranks them.
+    // allSettled, not all: one strategy failing twice must not discard
+    // the other, and mobile is the half that decides how Google ranks.
     const [mobileOutcome, desktopOutcome] = await Promise.allSettled([
       runStrategy('mobile'),
       runStrategy('desktop'),
@@ -100,8 +100,6 @@ export default function Home() {
     const desktop = desktopOutcome.status === 'fulfilled' ? desktopOutcome.value : undefined;
 
     if (!mobile && !desktop) {
-      // Both gone. Report whichever reason we have - they are usually
-      // the same failure, and it is more specific than a generic line.
       const reason = mobileOutcome.status === 'rejected' ? mobileOutcome.reason : undefined;
       setError(
         reason instanceof Error && reason.message
@@ -112,48 +110,57 @@ export default function Home() {
       return;
     }
 
-    const audit: AuditResponse = {
-      url,
-      mobile,
-      desktop,
-      fetchedAt: new Date().toISOString(),
-    };
-
-    setResult(audit);
-    // Before the lead post, not after it: the report is ready, and
-    // leaving the button spinning through an email send the visitor did
-    // not ask for is the delay this whole change set out to remove.
+    setResult({ url, mobile, desktop, fetchedAt: new Date().toISOString() });
     setLoading(false);
 
-    if (name && email && typeof window.gtag === 'function') {
-      window.gtag('event', 'generate_lead', {
+    // Separate from generate_lead on purpose. These two events are the
+    // funnel: how many finish an audit, and how many of those hand over
+    // an email. Without the first, a zero is unreadable - it cannot say
+    // whether nobody ran an audit or nobody converted after one.
+    if (typeof window.gtag === 'function') {
+      window.gtag('event', 'audit_completed', {
         audited_url: url,
+        partial: !mobile || !desktop,
       });
     }
+  }
 
-    // The scores are already on screen at this point. Saving the lead
-    // and sending the emails is our business, not something to make the
-    // visitor sit through, so it runs after the render and only adds the
-    // shareable link if it succeeds. A failure here is deliberately
-    // invisible to them - it is already alerted on the server side.
-    //
-    // JSON.stringify drops an undefined value, so a strategy that failed
-    // is simply absent from the payload rather than sent as zeros. That
-    // is the contract WordPress expects: absent means "never measured".
-    if (name && email) {
-      try {
-        const leadRes = await fetch('/api/lead', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, name, email, mobile, desktop }),
-        });
-        const leadData = await leadRes.json();
-        if (leadRes.ok && typeof leadData?.reportUrl === 'string') {
-          setResult({ ...audit, reportUrl: leadData.reportUrl });
-        }
-      } catch {
-        // Nothing to show the visitor; their report is already up.
+  async function handleLeadSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!result) return;
+
+    setLeadLoading(true);
+    setLeadError(null);
+
+    try {
+      const res = await fetch('/api/lead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: result.url,
+          name,
+          email,
+          mobile: result.mobile,
+          desktop: result.desktop,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || typeof data?.reportUrl !== 'string') {
+        setLeadError('Could not send the report just now. Please try again in a moment.');
+        return;
       }
+
+      setResult({ ...result, reportUrl: data.reportUrl });
+
+      if (typeof window.gtag === 'function') {
+        window.gtag('event', 'generate_lead', { audited_url: result.url });
+      }
+    } catch {
+      setLeadError('Could not send the report just now. Please try again in a moment.');
+    } finally {
+      setLeadLoading(false);
     }
   }
 
@@ -188,27 +195,10 @@ export default function Home() {
           <p className="mt-4 text-lg text-[#63C89F]">
             Enter your website URL for a free report on performance, accessibility, best practices, and SEO.
           </p>
+          <p className="mt-3 text-sm text-white/50">No email needed to see your scores.</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-10 space-y-3">
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Your name"
-              className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
-            />
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
-            />
-          </div>
+        <form onSubmit={handleSubmit} className="mt-10">
           <div className="flex flex-col gap-3 sm:flex-row">
             <input
               type="url"
@@ -223,7 +213,7 @@ export default function Home() {
               disabled={loading}
               className="rounded-lg bg-[#1D9E75] px-6 py-3 font-medium text-white transition hover:bg-[#178A65] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? 'Analyzing…' : 'Run audit'}
+              {loading ? 'Analyzing…' : 'Run free audit'}
             </button>
           </div>
         </form>
@@ -244,13 +234,60 @@ export default function Home() {
         {result && (
           <div className="mt-12">
             <AuditResults mobile={result.mobile} desktop={result.desktop} />
-            {result.reportUrl && (
-              <p className="mt-6 text-center text-sm text-[#63C89F]">
-                Bookmark this report:{' '}
-                <a href={result.reportUrl} className="underline hover:text-white">
-                  {result.reportUrl}
-                </a>
-              </p>
+
+            {result.reportUrl ? (
+              <div className="mt-8 rounded-2xl border border-[#1D9E75]/40 bg-[#0F3A5F] p-8 text-center">
+                <p className="font-semibold text-white">Sent. Check your inbox.</p>
+                <p className="mt-3 text-sm text-[#63C89F]">
+                  Bookmark this report:{' '}
+                  <a href={result.reportUrl} className="underline hover:text-white">
+                    {result.reportUrl}
+                  </a>
+                </p>
+              </div>
+            ) : (
+              <form
+                onSubmit={handleLeadSubmit}
+                className="mt-8 rounded-2xl border border-white/10 bg-[#0F3A5F] p-8"
+              >
+                <h3 className="text-lg font-semibold text-white">Want to keep this report?</h3>
+                <p className="mt-2 text-sm text-[#63C89F]">
+                  I&apos;ll email you a copy and a link you can come back to or send to whoever
+                  looks after your site.
+                </p>
+
+                <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                  <input
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Your name"
+                    className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
+                  />
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@company.com"
+                    className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-white/40 focus:border-[#1D9E75] focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={leadLoading}
+                    className="rounded-lg bg-[#1D9E75] px-6 py-3 font-medium text-white transition hover:bg-[#178A65] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {leadLoading ? 'Sending…' : 'Email it to me'}
+                  </button>
+                </div>
+
+                {leadError && <p className="mt-4 text-sm text-[#F4B4B4]">{leadError}</p>}
+
+                <p className="mt-4 text-xs text-white/40">
+                  One email with your results. No list, no newsletter.
+                </p>
+              </form>
             )}
           </div>
         )}
