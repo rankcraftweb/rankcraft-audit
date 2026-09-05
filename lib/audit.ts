@@ -126,11 +126,32 @@ export function createRateLimiter(max: number, windowMs: number) {
  */
 export async function hostnameResolves(hostname: string): Promise<boolean> {
   try {
-    await dns.lookup(hostname);
+    await dns.resolve4(hostname);
     return true;
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
-    return code !== 'ENOTFOUND';
+
+    // No A record is not the same as no domain: it may be IPv6-only.
+    if (code === 'ENODATA') {
+      try {
+        await dns.resolve6(hostname);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    if (code === 'ENOTFOUND' || code === 'NXDOMAIN' || code === 'EBADNAME') {
+      return false;
+    }
+
+    // Anything else - a resolver timeout, SERVFAIL - is inconclusive,
+    // and must not block a real audit. Logged because the first version
+    // of this used dns.lookup, whose system resolver did NOT report
+    // ENOTFOUND for a domain that does not exist on Vercel, so the check
+    // silently passed everything through.
+    console.error(`DNS check inconclusive for ${hostname}: ${code}`);
+    return true;
   }
 }
 
