@@ -39,7 +39,7 @@ export default function Home() {
    * threw away a mobile run that had finished in 18s. Two requests give
    * each strategy the whole budget.
    */
-  async function runStrategy(strategy: 'mobile' | 'desktop'): Promise<PageSpeedResult> {
+  async function requestStrategy(strategy: 'mobile' | 'desktop'): Promise<PageSpeedResult> {
     const res = await fetch('/api/audit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -53,6 +53,29 @@ export default function Home() {
     }
 
     return data.scores as PageSpeedResult;
+  }
+
+  /**
+   * One retry, because splitting the request was not enough on its own.
+   *
+   * Testing the split showed a run where mobile returned in 18s and
+   * desktop hit the ceiling - and the report still failed, because both
+   * are awaited together. Separate invocations stopped the two
+   * strategies sharing a budget; they did not stop one failure from
+   * sinking a finished result.
+   *
+   * PageSpeed's slow runs look like queue variance rather than anything
+   * about the site: the same URL that timed out came back in 15s
+   * minutes later. A second attempt usually lands. It is capped at one
+   * because the visitor is waiting, and two failures in a row mean the
+   * next attempt is unlikely to be different.
+   */
+  async function runStrategy(strategy: 'mobile' | 'desktop'): Promise<PageSpeedResult> {
+    try {
+      return await requestStrategy(strategy);
+    } catch {
+      return await requestStrategy(strategy);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -198,7 +221,8 @@ export default function Home() {
 
         {loading && (
           <div className="mt-10 text-center text-[#63C89F]">
-            Running Google PageSpeed Insights for mobile and desktop, this can take up to 30 seconds…
+            Running Google PageSpeed Insights for mobile and desktop. This usually takes about 20
+            seconds, and occasionally a good deal longer while Google works through its queue…
           </div>
         )}
 

@@ -35,10 +35,11 @@ interface StrategyResponse {
 }
 
 /**
- * 20 rather than 10: one audit is now two calls to this route, so the
- * old ceiling would have halved what a visitor can actually run.
+ * 30 rather than 10: one audit is now two calls to this route, and each
+ * may retry once, so the old ceiling would have cut what a visitor can
+ * actually run to a quarter of what it was meant to be.
  */
-const isRateLimited = createRateLimiter(20, 60 * 60 * 1000);
+const isRateLimited = createRateLimiter(30, 60 * 60 * 1000);
 
 function isStrategy(value: unknown): value is Strategy {
   return value === 'mobile' || value === 'desktop';
