@@ -1,3 +1,4 @@
+import { promises as dns } from 'node:dns';
 import type { NextRequest } from 'next/server';
 
 /**
@@ -103,6 +104,34 @@ export function createRateLimiter(max: number, windowMs: number) {
     entry.count += 1;
     return entry.count > max;
   };
+}
+
+/**
+ * Does this hostname exist at all?
+ *
+ * A mistyped domain is the common bad input, and PageSpeed is a slow
+ * way to find out. Measured against production: sometimes it answers
+ * 400 in ~19s, and sometimes it simply does not answer, so the request
+ * burns the full 55s ceiling and the retry makes it 110s. A visitor who
+ * fat-fingered a letter waits nearly two minutes to be told nothing
+ * useful.
+ *
+ * A DNS lookup settles it in milliseconds. It deliberately does NOT
+ * connect: nothing here fetches the visitor's URL server-side, so this
+ * adds no request-forgery surface, and a domain that resolves but is
+ * down is still left for PageSpeed to judge.
+ *
+ * Anything other than a definite "no such host" is treated as fine. A
+ * resolver hiccup must not block a real audit.
+ */
+export async function hostnameResolves(hostname: string): Promise<boolean> {
+  try {
+    await dns.lookup(hostname);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    return code !== 'ENOTFOUND';
+  }
 }
 
 export async function fetchPageSpeed(

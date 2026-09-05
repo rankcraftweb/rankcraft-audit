@@ -4,6 +4,7 @@ import {
   createRateLimiter,
   fetchPageSpeed,
   getClientIp,
+  hostnameResolves,
   isValidUrl,
   type PageSpeedResult,
   type Strategy,
@@ -82,6 +83,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Missing or unknown strategy. Expected 'mobile' or 'desktop'." },
       { status: 400 }
+    );
+  }
+
+  // Milliseconds, and it saves the visitor up to 110 seconds when they
+  // simply mistyped the domain. Not retryable: a name that does not
+  // exist will not exist on a second attempt either.
+  if (!(await hostnameResolves(new URL(targetUrl).hostname))) {
+    return NextResponse.json(
+      {
+        error: "That domain doesn't seem to exist. Check the spelling and try again.",
+        retryable: false,
+      },
+      { status: 502 }
     );
   }
 
